@@ -55,9 +55,10 @@ def _normalize_project_name(dir_name: str) -> str:
     return cleaned or dir_name
 
 
-def collect_all_data(use_git: bool = True) -> list[ProjectData]:
+def collect_all_data(use_git: bool = True, code_root: Path | None = None) -> list[ProjectData]:
     """Collect and analyze sessions from all discovered project directories."""
-    code_root = Path.home() / "Code"
+    if code_root is None:
+        code_root = Path.home() / "Code"
     project_dirs = _find_project_dirs()
     if not project_dirs:
         return []
@@ -155,7 +156,8 @@ def cmd_retro(args):
 
 def cmd_scan(args):
     """Scan all sessions with git + chain analysis."""
-    projects = collect_all_data(use_git=not args.no_git)
+    code_root = Path(args.code_root) if args.code_root else None
+    projects = collect_all_data(use_git=not args.no_git, code_root=code_root)
     if not projects:
         print("No sessions found.", file=sys.stderr)
         sys.exit(1)
@@ -183,7 +185,8 @@ def cmd_scan(args):
 
 def cmd_report(args):
     """Generate a full markdown durability report."""
-    projects = collect_all_data(use_git=not args.no_git)
+    code_root = Path(args.code_root) if args.code_root else None
+    projects = collect_all_data(use_git=not args.no_git, code_root=code_root)
     if not projects:
         print("No sessions found.", file=sys.stderr)
         sys.exit(1)
@@ -342,11 +345,13 @@ def main():
 
     scan = subparsers.add_parser("scan", help="Scan all sessions with git + chains")
     scan.add_argument("--no-git", action="store_true", help="Skip git matching (fast mode)")
+    scan.add_argument("--code-root", help="Root directory for git repos (default: ~/Code)")
 
     report = subparsers.add_parser("report", help="Generate markdown durability report")
     report.add_argument("--no-git", action="store_true", help="Skip git matching")
     report.add_argument("--anonymize", action="store_true", help="Replace project names")
     report.add_argument("--output", "-o", help="Write to file instead of stdout")
+    report.add_argument("--code-root", help="Root directory for git repos (default: ~/Code)")
 
     args = parser.parse_args()
 

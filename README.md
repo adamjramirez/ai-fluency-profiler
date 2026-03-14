@@ -1,6 +1,9 @@
 # AI Fluency Profiler
 
-Analyze your AI coding sessions against git history. See what code survived, what thrashed, and what behavioral patterns predict shipping.
+Analyze your AI coding sessions against git history. Two layers of analysis:
+
+1. **Session analytics** — how you interact with the AI (shapes, chains, thrashing, behavioral signals)
+2. **Code durability** — what happened to the code after the session ended (survival, bugs, churn)
 
 Works with **Claude Code** and **Pi** session transcripts. Zero external dependencies — just Python and git.
 
@@ -13,10 +16,10 @@ pip install git+https://github.com/YOUR_ORG/ai-fluency-profiler.git
 ## Quick Start
 
 ```bash
-# Fast scan — session shapes, chains, behavioral signals (~2 seconds)
+# Fast scan — session analytics only (~2 seconds)
 fluency scan --no-git
 
-# Full scan — adds code durability from git blame (~2-7 min for large repos)
+# Full scan — session analytics + code durability (~2-7 min for large repos)
 fluency scan
 
 # Generate a shareable markdown report
@@ -25,6 +28,48 @@ fluency report --anonymize --output report.md
 # Single session deep dive
 fluency retro path/to/session.jsonl --repo path/to/repo
 ```
+
+If your repos aren't in `~/Code/`, point to them:
+
+```bash
+fluency scan --code-root ~/projects
+```
+
+## What It Analyzes
+
+### Session Analytics (no git required)
+
+Parsed from your local session transcripts — no API calls, everything runs locally.
+
+- **Session shapes** — classifies each session by what happened: `explore_build` (100% ship rate), `debug_investigate` (0% ship rate), `plan_handoff`, `review_iterate`, etc.
+- **Chain detection** — groups related sessions by time proximity and intent overlap. Flags **thrashing** (repeated sessions on the same files with zero output).
+- **Behavioral signals** — shipped vs zero-commit sessions compared: prompts, tool calls, test usage, subagent usage, active time.
+- **Timing breakdown** — AI working time vs human waiting time vs human typing time.
+
+### Code Durability (requires git)
+
+Connects session commits to `git blame` at HEAD to measure what survived.
+
+- **Line survival** — how many lines from each session still exist in the codebase.
+- **Loss categorization** — lines lost to bugs vs architecture changes vs feature evolution vs refactoring. These are very different and should be evaluated differently.
+- **Bug rate** — lines removed by `fix:` commits as a percentage of lines added.
+- **Adjusted survival** — raw survival corrected for intentional architecture changes (file deletions, rewrites).
+- **Per-project breakdown** — durability stats by repo.
+
+## How It Finds Your Data
+
+**Sessions** are auto-discovered from standard locations:
+- Claude Code: `~/.claude/projects/*/`
+- Pi: `~/.pi/agent/sessions/*/`
+
+**Git repos** are matched by extracting the project name from the session directory name and looking for it in `~/Code/`. Override with `--code-root`:
+
+```bash
+fluency scan --code-root ~/dev        # repos in ~/dev/
+fluency scan --code-root ~/projects   # repos in ~/projects/
+```
+
+If a repo can't be found, session analytics still run — you just won't get durability data for that project.
 
 ## Sample Output
 
@@ -59,24 +104,20 @@ BEHAVIORAL SIGNALS (shipped vs zero-commit)
   has subagents                  28%              12%
 ```
 
-## What It Reads
+## Commands
 
-- **Claude Code sessions**: `~/.claude/projects/*/`
-- **Pi sessions**: `~/.pi/agent/sessions/*/`
-- **Git repos**: auto-detected from session directory names, looks in `~/Code/` by default
-
-## What It Produces
-
-- **Code durability** — lines added → lines surviving at HEAD, categorized by why lines were lost (bugs, architecture changes, evolution, refactoring)
-- **Session shapes** — classifies each session (explore_build, debug_investigate, plan_handoff, etc.) with ship rates
-- **Chain detection** — groups related sessions by time and intent, flags thrashing (repeated work with zero output)
-- **Behavioral signals** — shipped vs zero-commit sessions compared on prompts, tool calls, test usage, active time
-- **Markdown reports** — `fluency report` generates a full shareable analysis
+| Command | What it does | Speed |
+|---------|-------------|-------|
+| `fluency scan --no-git` | Session analytics only | ~2 seconds |
+| `fluency scan` | Session analytics + code durability | ~2-7 min |
+| `fluency report` | Full markdown report to stdout | ~2-7 min |
+| `fluency report --anonymize -o report.md` | Anonymized report to file | ~2-7 min |
+| `fluency retro SESSION --repo REPO` | Deep dive on one session | ~10 sec |
 
 ## Requirements
 
 - Python ≥ 3.11
-- Git
+- Git (for code durability analysis)
 - Claude Code and/or Pi session history on local disk
 
 ## Also works as a module
