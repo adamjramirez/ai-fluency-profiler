@@ -68,7 +68,12 @@ class SessionAnalysis:
     skill_files_edited: list[str] = field(default_factory=list)
     claude_md_edited: bool = False
 
-    # Session shape (derived)
+    # Session goal (inferred from opening prompt)
+    session_goal: str = "unknown"
+    # Valid goals: ship, investigate, review, explore, plan, learn, unknown
+    # This is what the user intended, not what happened.
+
+    # Session shape (derived from what actually happened)
     session_shape: str = "unknown"
     # Valid shapes: plan_handoff, review_iterate, review_only, debug_investigate,
     #   error_fix, explore_build, explore_only, abandoned

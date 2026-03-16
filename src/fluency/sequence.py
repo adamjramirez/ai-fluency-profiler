@@ -21,8 +21,9 @@ class SessionChain:
 
     # Pattern
     pattern: str = "standalone"
-    shipped: bool = False
+    has_commits: bool = False
     dominant_shape: str = ""
+    dominant_goal: str = ""
     topic: str = ""
 
 
@@ -108,13 +109,19 @@ def _build_chain(sessions: list[SessionAnalysis]) -> SessionChain:
     chain.total_human_prompts = sum(sa.human_prompt_count for sa in sessions)
     chain.total_active_min = sum(sa.active_min for sa in sessions)
 
-    chain.shipped = chain.total_commits > 0
+    chain.has_commits = chain.total_commits > 0
 
     # Dominant shape
     shape_counts = Counter(chain.shape_sequence)
     most_common_shape, most_common_count = shape_counts.most_common(1)[0]
     if most_common_count > len(sessions) / 2:
         chain.dominant_shape = most_common_shape
+
+    # Dominant goal
+    goal_counts = Counter(sa.session_goal for sa in sessions)
+    most_common_goal, most_common_goal_count = goal_counts.most_common(1)[0]
+    if most_common_goal_count > len(sessions) / 2:
+        chain.dominant_goal = most_common_goal
 
     # Topic from most common intent prefix
     intent_prefixes = Counter(
@@ -130,7 +137,11 @@ def _build_chain(sessions: list[SessionAnalysis]) -> SessionChain:
 
 
 def classify_chain_pattern(chain: SessionChain) -> str:
-    """Classify chain pattern by dominant shape + outcome."""
+    """Classify chain pattern by dominant shape + goal + outcome.
+
+    Key principle: thrashing only applies when the goal was to ship.
+    An investigate/review/explore chain with 0 commits is normal work.
+    """
     n = len(chain.sessions)
 
     if n == 1:
@@ -145,29 +156,50 @@ def classify_chain_pattern(chain: SessionChain) -> str:
         if s in ("explore_only", "explore_build")
     )
 
-    # plan_execute: dominant plan_handoff + shipped
-    if chain.dominant_shape == "plan_handoff" and chain.shipped:
+    # Non-ship goals with no commits are working as intended
+    non_ship_goals = {"investigate", "review", "explore", "plan", "learn"}
+    if chain.dominant_goal in non_ship_goals and not chain.has_commits:
+        if chain.dominant_goal == "investigate":
+            return "investigation"
+        if chain.dominant_goal == "review":
+            return "review_fix_loop" if chain.has_commits else "review_cycle"
+        if chain.dominant_goal == "explore":
+            return "exploration"
+        if chain.dominant_goal == "plan":
+            return "planning"
+        return "research"
+
+    # plan_execute: dominant plan_handoff + has commits
+    if chain.dominant_shape == "plan_handoff" and chain.has_commits:
         return "plan_execute"
 
-    # review_fix_loop / review_stall: ≥2 review shapes
+    # review_fix_loop / review_cycle: ≥2 review shapes
     if review_count >= 2:
-        return "review_fix_loop" if chain.shipped else "review_stall"
+        return "review_fix_loop" if chain.has_commits else "review_cycle"
 
-    # explore_converge: has explore shapes + shipped
-    if explore_count >= 2 and chain.shipped:
+    # explore_converge: has explore shapes + has commits
+    if explore_count >= 2 and chain.has_commits:
         return "explore_converge"
 
-    # thrashing: ≥3 sessions, not shipped
-    if n >= 3 and not chain.shipped:
-        return "thrashing"
+    # thrashing: ≥3 sessions, goal was ship (or unknown), no commits
+    if n >= 3 and not chain.has_commits:
+        goal_is_ship = chain.dominant_goal in ("ship", "unknown", "")
+        if goal_is_ship:
+            return "thrashing"
+        # Non-ship goal chains without commits are normal
+        return "research"
 
-    # mixed_sprint: ≥4 sessions, no dominant, shipped
-    if n >= 4 and not chain.dominant_shape and chain.shipped:
+    # mixed_sprint: ≥4 sessions, no dominant, has commits
+    if n >= 4 and not chain.dominant_shape and chain.has_commits:
         return "mixed_sprint"
 
-    # Small shipped chains without clear pattern
-    if chain.shipped:
+    # Small chains with commits
+    if chain.has_commits:
         return "mixed_sprint" if n >= 3 else "plan_execute"
 
-    # Small unshipped chains
-    return "thrashing" if n >= 2 else "standalone"
+    # Small unshipped chains with ship/unknown goal
+    if n >= 2 and not chain.has_commits:
+        goal_is_ship = chain.dominant_goal in ("ship", "unknown", "")
+        return "thrashing" if goal_is_ship else "research"
+
+    return "standalone"

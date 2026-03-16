@@ -16,6 +16,7 @@ def _make_session(
     edit_count: int = 0,
     first_intent: str = "do something",
     tool_call_count: int = 20,
+    session_goal: str = "unknown",
 ) -> SessionAnalysis:
     """Create a session with start time as minutes from epoch."""
     base = datetime(2026, 2, 5, 20, 0, 0, tzinfo=timezone.utc)
@@ -24,6 +25,7 @@ def _make_session(
 
     sa = SessionAnalysis(id=id, source="claude_code")
     sa.session_shape = shape
+    sa.session_goal = session_goal
     sa.commit_count = commit_count
     sa.edit_count = edit_count
     sa.first_intent = first_intent
@@ -129,7 +131,7 @@ class TestClassifyChainPattern:
         ]
         chains = detect_chains(sessions)
         assert chains[0].pattern == "plan_execute"
-        assert chains[0].shipped is True
+        assert chains[0].has_commits is True
 
     def test_review_fix_loop(self):
         """Multiple review sessions + shipped = review_fix_loop."""
@@ -140,17 +142,17 @@ class TestClassifyChainPattern:
         ]
         chains = detect_chains(sessions)
         assert chains[0].pattern == "review_fix_loop"
-        assert chains[0].shipped is True
+        assert chains[0].has_commits is True
 
-    def test_review_stall(self):
-        """Multiple review sessions + not shipped = review_stall."""
+    def test_review_cycle(self):
+        """Multiple review sessions + not shipped = review_cycle."""
         sessions = [
             _make_session("a", 0, shape="review_only"),
             _make_session("b", 20, shape="review_only"),
         ]
         chains = detect_chains(sessions)
-        assert chains[0].pattern == "review_stall"
-        assert chains[0].shipped is False
+        assert chains[0].pattern == "review_cycle"
+        assert chains[0].has_commits is False
 
     def test_explore_converge(self):
         """Explore shapes + shipped = explore_converge."""
@@ -170,7 +172,7 @@ class TestClassifyChainPattern:
         ]
         chains = detect_chains(sessions)
         assert chains[0].pattern == "thrashing"
-        assert chains[0].shipped is False
+        assert chains[0].has_commits is False
 
     def test_mixed_sprint(self):
         """4+ sessions, no dominant shape, shipped = mixed_sprint."""
@@ -182,7 +184,7 @@ class TestClassifyChainPattern:
         ]
         chains = detect_chains(sessions)
         assert chains[0].pattern == "mixed_sprint"
-        assert chains[0].shipped is True
+        assert chains[0].has_commits is True
 
 
 def _find_any_session_project_dir(min_sessions: int = 10):
@@ -266,5 +268,75 @@ class TestRealChains:
     def test_shipped_chains_have_commits(self, real_sessions):
         chains = detect_chains(real_sessions)
         for chain in chains:
-            if chain.shipped:
+            if chain.has_commits:
                 assert chain.total_commits > 0
+
+
+class TestGoalAwareChains:
+    """Chains should respect session goals — non-ship goals with 0 commits are normal."""
+
+    def test_investigate_chain_not_thrashing(self):
+        """3 investigate sessions with 0 commits = investigation, not thrashing."""
+        sessions = [
+            _make_session("s1", 0, shape="debug_investigate", commit_count=0, session_goal="investigate"),
+            _make_session("s2", 30, shape="debug_investigate", commit_count=0, session_goal="investigate"),
+            _make_session("s3", 50, shape="explore_only", commit_count=0, session_goal="investigate"),
+        ]
+        chains = detect_chains(sessions)
+        assert len(chains) == 1
+        assert chains[0].pattern == "investigation"
+        assert chains[0].pattern != "thrashing"
+
+    def test_review_chain_not_thrashing(self):
+        """3 review sessions with 0 commits = review cycle, not thrashing."""
+        sessions = [
+            _make_session("s1", 0, shape="review_only", commit_count=0, session_goal="review"),
+            _make_session("s2", 30, shape="review_only", commit_count=0, session_goal="review"),
+            _make_session("s3", 50, shape="review_only", commit_count=0, session_goal="review"),
+        ]
+        chains = detect_chains(sessions)
+        assert len(chains) == 1
+        assert chains[0].pattern == "review_cycle"
+
+    def test_explore_chain_not_thrashing(self):
+        """3 explore sessions with 0 commits = exploration, not thrashing."""
+        sessions = [
+            _make_session("s1", 0, shape="explore_only", commit_count=0, session_goal="explore"),
+            _make_session("s2", 30, shape="explore_only", commit_count=0, session_goal="explore"),
+            _make_session("s3", 50, shape="explore_only", commit_count=0, session_goal="explore"),
+        ]
+        chains = detect_chains(sessions)
+        assert len(chains) == 1
+        assert chains[0].pattern == "exploration"
+
+    def test_ship_goal_no_commits_is_thrashing(self):
+        """3 ship-goal sessions with 0 commits IS thrashing."""
+        sessions = [
+            _make_session("s1", 0, shape="explore_only", commit_count=0, session_goal="ship"),
+            _make_session("s2", 30, shape="explore_only", commit_count=0, session_goal="ship"),
+            _make_session("s3", 50, shape="explore_only", commit_count=0, session_goal="ship"),
+        ]
+        chains = detect_chains(sessions)
+        assert len(chains) == 1
+        assert chains[0].pattern == "thrashing"
+
+    def test_unknown_goal_no_commits_is_thrashing(self):
+        """3 unknown-goal sessions with 0 commits = thrashing (conservative)."""
+        sessions = [
+            _make_session("s1", 0, shape="explore_only", commit_count=0, session_goal="unknown"),
+            _make_session("s2", 30, shape="explore_only", commit_count=0, session_goal="unknown"),
+            _make_session("s3", 50, shape="explore_only", commit_count=0, session_goal="unknown"),
+        ]
+        chains = detect_chains(sessions)
+        assert len(chains) == 1
+        assert chains[0].pattern == "thrashing"
+
+    def test_dominant_goal_tracked(self):
+        """Chain should track the dominant goal."""
+        sessions = [
+            _make_session("s1", 0, session_goal="investigate"),
+            _make_session("s2", 30, session_goal="investigate"),
+            _make_session("s3", 50, session_goal="ship"),
+        ]
+        chains = detect_chains(sessions)
+        assert chains[0].dominant_goal == "investigate"
