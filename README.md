@@ -73,35 +73,56 @@ If a repo can't be found, session analytics still run — you just won't get dur
 
 ## Sample Output
 
+### Scan
+
 ```
 ══════════════════════════════════════════════════════════════════════
   my-project — 12 CC + 38 Pi
-  50 sessions (22 explore_build · 15 debug_investigate · 8 explore_only · 5 review_iterate)
+  50 sessions (18 ship · 14 unknown · 8 investigate · 6 review · 4 explore)
 ══════════════════════════════════════════════════════════════════════
 
 DURABILITY (32 sessions with git data)
   48,210 lines added → 38,568 surviving (80% raw, 89% adjusted)
   Losses: 312 bug-fix (8 commits) · 5,102 architecture · 2,840 evolution
   Bug rate: 0.6% of lines, 8 fix commits
+  Note: Durability favors well-scoped tasks (bugfixes). Compare within goal categories.
 
 SESSION SHAPES:
-  explore_build           22 (44%)  22 with commits   avg 11.2 commits
-  debug_investigate       15 (30%)
-  explore_only             8 (16%)
-  review_iterate           5 (10%)  3 with commits    avg 6.5 commits
+  explore_build           22 (44%)  goal: ship 18, unknown 4  22 with commits
+  debug_investigate       15 (30%)  goal: investigate 8, ship 4, unknown 3
+  review_only              8 (16%)  goal: review 6, unknown 2
+  explore_only             5 (10%)  goal: explore 3, learn 2
 
 CHAINS (6 multi-session)
-  explore_converge        3 chains → 3 shipped
-  plan_execute            2 chains → 2 shipped
-  thrashing               1 chains → 0 shipped  ⚠️ 3 sessions, 0 output
+  explore_converge         3 chains  3 with commits
+  plan_execute             2 chains  2 with commits
+  investigation            1 chains  3 sessions (0 commits expected)
 
-BEHAVIORAL SIGNALS (shipped vs zero-commit)
-                              Shipped (n=25)     Zero (n=25)
-  active min                      62               14
-  prompts                         19                5
-  tool calls                     280               48
-  has tests                      72%               4%
-  has subagents                  28%              12%
+BY GOAL (median values):
+                                   ship (n=18)   investigate (n=8)   review (n=6)
+  active min                              62                  14             20
+  prompts                                 19                   5              4
+  tool calls                             280                  48             35
+  commits                                 11                   0              0
+  has tests                              72%                  4%             0%
+
+NOTE: Sessions evaluated against inferred goal. A review with 0 commits is
+working as intended. Intent inferred from opening prompt — may be imperfect.
+Durability favors well-scoped tasks over ambiguous ones.
+```
+
+### Retro
+
+```
+======================================================================
+  SESSION: abc123
+  Source: pi  |  Shape: debug_investigate  |  Goal: investigate
+======================================================================
+
+SUMMARY: 45-minute investigation session. You sent 6 prompts, the agent
+made 48 tool calls. No code was committed — typical for investigate sessions.
+
+INTENT: why is the test failing on CI but passing locally?
 ```
 
 ## Commands

@@ -156,6 +156,7 @@ def _parse_claude_code(lines: list[dict], path: Path) -> SessionAnalysis:
 
     # Session type
     sa.session_shape = _detect_shape(sa)
+    sa.session_goal = classify_session_goal(sa.first_intent)
 
     return sa
 
@@ -567,6 +568,7 @@ def _parse_pi(lines: list[dict], path: Path) -> SessionAnalysis:
 
     # Session type
     sa.session_shape = _detect_shape(sa)
+    sa.session_goal = classify_session_goal(sa.first_intent)
 
     return sa
 
@@ -647,7 +649,93 @@ def _compute_timing(
 
 
 # ===========================================================================
-# Session classification
+# Goal classification — what the user intended
+
+
+# Order matters: more specific patterns first to avoid false matches.
+# E.g. "look into" must match investigate before "look" matches something else.
+_GOAL_PATTERNS: list[tuple[str, list[str]]] = [
+    ("investigate", [
+        "why ", "why?", "what's happening", "what is happening",
+        "look into", "debug", "figure out", "diagnose", "troubleshoot",
+        "what's wrong", "what went wrong", "what is wrong",
+        "track down", "root cause",
+        "analyze", "investigation", "find all", "find the",
+        "search for", "every pr fails", "what happened",
+        "look at", "take a look", "i see ",
+        "do we feel confident", "can you estimate",
+        "i still feel", "how can i ",
+        "we were looking", "we were just looking",
+    ]),
+    ("review", [
+        "review", "audit", "code review", "look at this pr",
+        "check this", "check the", "sanity check",
+        "verify claim", "verify the", "verify every",
+        "for each of these", "run two greps", "run all of the following",
+        "report their full contents", "report:",
+        "read the following files", "read apps/",
+    ]),
+    ("plan", [
+        "plan ", "plan:", "design ", "architect", "spec ",
+        "outline", "strategy for", "roadmap",
+        "let's think about", "how should we",
+        "what would be the best way",
+    ]),
+    ("learn", [
+        "explain", "how does", "teach", "understand",
+        "onboard", "walk me through", "what is a", "what are",
+        "show me how", "give me the description",
+        "give me an idea",
+    ]),
+    ("explore", [
+        "what if", "how would", "experiment", "spike",
+        "could we", "try ", "prototype", "explore",
+        "would it be possible",
+        "i want to consider",
+    ]),
+    ("ship", [
+        "implement", "build ", "build:", "add feature", "add a feature",
+        "create ", "create:", "fix ", "fix:", "wire up", "set up",
+        "connect", "integrate", "deploy", "ship", "release",
+        "write a", "write the", "make ", "update ",
+        "implement the following plan",
+        "work on", "let's continue", "let's address",
+        "now on the", "we need to", "i want to start",
+        "on the ", "let's build",
+    ]),
+]
+
+
+def classify_session_goal(first_intent: str) -> str:
+    """Classify session goal from the opening prompt.
+
+    Conservative: returns 'unknown' rather than guessing.
+    Checks more specific patterns first (investigate, review, plan, learn)
+    before broader ones (explore, ship).
+    """
+    if not first_intent or len(first_intent.strip()) < 4:
+        return "unknown"
+
+    text = first_intent.lower().strip()[:300]
+
+    # Special cases: explicit plan execution is ship, not plan
+    if text.startswith("implement the following plan"):
+        return "ship"
+    if text.startswith("execute this"):
+        return "ship"
+    if text.startswith("let's do ") or text.startswith("let's finish"):
+        return "ship"
+
+    for goal, patterns in _GOAL_PATTERNS:
+        for pattern in patterns:
+            if pattern in text:
+                return goal
+
+    return "unknown"
+
+
+# ===========================================================================
+# Session shape classification
 # ===========================================================================
 
 

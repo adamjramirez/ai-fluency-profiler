@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from fluency.parser import parse_session
+from fluency.parser import parse_session, classify_session_goal
 
 
 # --- Fixtures: minimal JSONL sessions ---
@@ -706,3 +706,87 @@ class TestPiFormat:
         ])
         result = parse_session(session)
         assert result.human_prompt_count == 2  # "do it" + "thanks", not tool result
+
+
+# ===========================================================================
+# Goal classification tests
+# ===========================================================================
+
+
+class TestClassifySessionGoal:
+    """Tests for classify_session_goal()."""
+
+    def test_ship_implement(self):
+        assert classify_session_goal("implement the login page") == "ship"
+
+    def test_ship_build(self):
+        assert classify_session_goal("build the data pipeline") == "ship"
+
+    def test_ship_fix(self):
+        assert classify_session_goal("fix the broken test in auth module") == "ship"
+
+    def test_ship_create(self):
+        assert classify_session_goal("create a new endpoint for users") == "ship"
+
+    def test_ship_plan_execution(self):
+        assert classify_session_goal("implement the following plan: step 1...") == "ship"
+
+    def test_investigate_why(self):
+        assert classify_session_goal("why is the test failing?") == "investigate"
+
+    def test_investigate_debug(self):
+        assert classify_session_goal("debug the memory leak in worker") == "investigate"
+
+    def test_investigate_figure_out(self):
+        assert classify_session_goal("figure out why deploys are slow") == "investigate"
+
+    def test_investigate_look_into(self):
+        assert classify_session_goal("look into the failing CI pipeline") == "investigate"
+
+    def test_review(self):
+        assert classify_session_goal("review this PR for the auth changes") == "review"
+
+    def test_review_audit(self):
+        assert classify_session_goal("audit the security of our API endpoints") == "review"
+
+    def test_explore_what_if(self):
+        assert classify_session_goal("what if we used DuckDB instead of SQLite?") == "explore"
+
+    def test_explore_could_we(self):
+        assert classify_session_goal("could we replace the ORM with raw SQL?") == "explore"
+
+    def test_plan(self):
+        assert classify_session_goal("plan the database migration") == "plan"
+
+    def test_plan_design(self):
+        assert classify_session_goal("design the notification system") == "plan"
+
+    def test_learn_explain(self):
+        assert classify_session_goal("explain how the parser works") == "learn"
+
+    def test_learn_how_does(self):
+        assert classify_session_goal("how does the git tracer find commits?") == "learn"
+
+    def test_learn_walk_me_through(self):
+        assert classify_session_goal("walk me through the deploy process") == "learn"
+
+    def test_unknown_empty(self):
+        assert classify_session_goal("") == "unknown"
+
+    def test_unknown_short(self):
+        assert classify_session_goal("hey") == "unknown"
+
+    def test_unknown_none_like(self):
+        assert classify_session_goal("   ") == "unknown"
+
+    def test_priority_investigate_over_ship(self):
+        """'debug' should match investigate even though 'fix' is in ship."""
+        assert classify_session_goal("debug and fix the login issue") == "investigate"
+
+    def test_priority_review_over_ship(self):
+        """'review' should match before 'update'."""
+        assert classify_session_goal("review the update to the API") == "review"
+
+    def test_priority_plan_over_ship(self):
+        """'plan' should match before 'build'."""
+        assert classify_session_goal("plan how to build the new feature") == "plan"
